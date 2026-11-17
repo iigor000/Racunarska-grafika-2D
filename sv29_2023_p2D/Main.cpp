@@ -32,7 +32,7 @@ const float baseCartDistance = 0.042f;
 
 float headX = startingVehiclePosition;
 
-// Stanje svakog vagona pojedinačno
+// Stanje vagona
 enum CartPhase {
     CART_PARKED = 0,
     CART_ON_TRACK,
@@ -54,7 +54,7 @@ enum RollercoasterState {
 
 RollercoasterState currentState = WAITING_FOR_BOARDING;
 
-// Struktura koja opisuje jedan oblak na nebu
+// Stanje oblaka
 struct Cloud {
     float x, y;
     float speed;
@@ -70,11 +70,13 @@ Cloud clouds[MAX_CLOUDS];
 unsigned int cloudTextures[3];
 unsigned int cloudVAO;
 
-// Lokacije uniformi za transformaciju (pomeraj, rotacija, skaliranje) u basic.vert
+// Lokacije uniformi
 GLint uOffsetLoc = -1;
 GLint uRotationLoc = -1;
 GLint uScaleLoc = -1;
 GLint uUseTextureLoc = -1;
+GLint uUseTex1Loc = -1;
+GLint uUseTex2Loc = -1;
 
 // Staticki VAO/VBO koji se prave jednom
 unsigned int supportVAO = 0, supportVBO = 0;
@@ -349,6 +351,8 @@ void drawTrack(unsigned int shader, unsigned int trackVAO, int numTrackVertices)
     // Koristimo shader
     glUseProgram(shader);
 
+    glUniform1i(uUseTextureLoc, 0);
+
     // Crtanje staze
     glBindVertexArray(trackVAO);
     glLineWidth(5.0f);
@@ -357,6 +361,9 @@ void drawTrack(unsigned int shader, unsigned int trackVAO, int numTrackVertices)
 
 void drawStudentInfo(unsigned int shader, unsigned int studentVAO, unsigned int studentTexture) {
     glUseProgram(shader);
+
+    glUniform1i(uUseTextureLoc, 1);
+
     glBindTexture(GL_TEXTURE_2D, studentTexture);
     glBindVertexArray(studentVAO);
     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
@@ -423,11 +430,10 @@ void drawSupports(unsigned int shader) {
     glUniform1i(uUseTextureLoc, 0);
 
     glBindVertexArray(supportVAO);
-    glLineWidth(3.0f); // Debljina potpornih stubova
+    glLineWidth(3.0f);
     glDrawArrays(GL_LINES, 0, supportVertexCount);
 }
 
-// Povratna linija je staticka, pa se pravi samo jednom
 void buildReturnTrack() {
     // Linija ide od kraja gornje staze do pocetne pozicije vozila
     float returnVertices[] = {
@@ -456,7 +462,7 @@ float getParkX(int i) {
     return startingVehiclePosition - i * baseCartDistance;
 }
 
-// Za svaki vagon posebno: voznja -> (okret) povratak do levog kraja -> (okret) udesno do starta -> parkiranje
+// Za svaki vagon: voznja -> (okret) povratak do levog kraja -> (okret) udesno do starta -> parkiranje
 void updateCarts() {
     float chainX = headX; // Pozicija lanca vagona iza glave vozila
 
@@ -586,17 +592,21 @@ void updatePhysics() {
     }
 }
 
-// Crta sve vagone (sa putnicima i pojasevima). Svi dele isti VAO, a poziciju i nagib
-// odredjuju uniforme u basic.vert
+// Crta sve vagone
 void drawCarts(unsigned int shader, unsigned int cartVAO,
     unsigned int unitCartTexture, unsigned int personTextures[],
     unsigned int personGreenTextures[], unsigned int seatbeltTexture) {
 
-    // Postavljanje uniformi i ostalo
     glUseProgram(shader);
     glUniform1i(uUseTextureLoc, 1);
-    glActiveTexture(GL_TEXTURE0);
     glBindVertexArray(cartVAO);
+
+    // Teksture koje se ne menjaju od vagona do vagona vezujemo samo jednom
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, unitCartTexture);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, seatbeltTexture);
+    glActiveTexture(GL_TEXTURE1); // ostaje aktivna jer se tekstura putnika menja po vagonu
 
     for (int i = 0; i < 8; ++i) {
         float carX = cartX[i];
@@ -604,12 +614,11 @@ void drawCarts(unsigned int shader, unsigned int cartVAO,
 
         // flip: 0 = gleda napred (glavna pruga), 1 = gleda nazad
         float flip = getCartFlip(i);
-        float lane = flip;
         float scaleX = (flip > 0.5f) ? -1.0f : 1.0f;
 
         float trackY = getTrackY(carX, trackLen, straghtTrackPart);
-        float carY = trackY + (returnTrackY - trackY) * lane;
-        float angle = getTrackAngle(carX) * (1.0f - lane);
+        float carY = trackY + (returnTrackY - trackY) * flip;
+        float angle = getTrackAngle(carX) * (1.0f - flip);
 
         float cosA = cos(angle);
         float sinA = sin(angle);
@@ -621,29 +630,23 @@ void drawCarts(unsigned int shader, unsigned int cartVAO,
         // Pomeraj, rotacija i flip (scaleX) se racunaju u vertex shaderu
         setTransform(finalX, finalY, angle, scaleX, 1.0f);
 
-        // 1. Crtamo prazan vagon
-        glBindTexture(GL_TEXTURE_2D, unitCartTexture);
+        bool hasPerson = (i < passengerCount && passengerPresent[i]);
+        bool hasSeatbelt = hasPerson && seatbeltOn[i];
+
+        // Putnik (zdrav ili zeleni/bolesni) ide na teksturnu jedinicu 1
+        if (hasPerson) {
+            glBindTexture(GL_TEXTURE_2D, isPassengerGreen[i] ? personGreenTextures[i] : personTextures[i]);
+        }
+        glUniform1i(uUseTex1Loc, hasPerson);
+        glUniform1i(uUseTex2Loc, hasSeatbelt);
+
         glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-
-        // 2. Crtamo putnika (zdravog ili zelenog/bolesnog)
-        if (i < passengerCount && passengerPresent[i]) {
-            if (isPassengerGreen[i]) {
-                glBindTexture(GL_TEXTURE_2D, personGreenTextures[i]);
-            }
-            else {
-                glBindTexture(GL_TEXTURE_2D, personTextures[i]);
-            }
-            glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-        }
-
-        // 3. Crtamo pojas pojedinacno ako je taj putnik kliknut
-        if (i < passengerCount && passengerPresent[i] && seatbeltOn[i]) {
-            glBindTexture(GL_TEXTURE_2D, seatbeltTexture);
-            glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-        }
     }
 
-    // Ostali objekti se crtaju bez transformacije
+    // Vracamo stanje da ostali objekti ostanu netaknuti
+    glUniform1i(uUseTex1Loc, 0);
+    glUniform1i(uUseTex2Loc, 0);
+    glActiveTexture(GL_TEXTURE0);
     resetTransform();
 }
 
@@ -664,8 +667,6 @@ void drawClouds(unsigned int shader, unsigned int cloudVAO) {
             clouds[i].y = 0.25f + (static_cast<float>(rand()) / RAND_MAX) * 0.5f;
         }
 
-        // cloudVAO je jedinicni kvadrat (-0.5..0.5), pa ga skaliramo na dimenzije oblaka
-        // i pomeramo na njegovu poziciju preko uniformi u vertex shaderu
         setTransform(clouds[i].x, clouds[i].y, 0.0f, clouds[i].width, clouds[i].height);
 
         glBindTexture(GL_TEXTURE_2D, cloudTextures[clouds[i].textureIndex]);
@@ -698,12 +699,16 @@ int main()
     unsigned int basicShader = createShader("basic.vert", "basic.frag");
     glUseProgram(basicShader);
     glUniform1i(glGetUniformLocation(basicShader, "uTex0"), 0);
+    glUniform1i(glGetUniformLocation(basicShader, "uTex1"), 1);
+    glUniform1i(glGetUniformLocation(basicShader, "uTex2"), 2);
 
-    // Lokacije uniformi za transformaciju (kesiramo ih jednom) i identitet kao pocetna vrednost
+    // Lokacije uniformi
     uOffsetLoc = glGetUniformLocation(basicShader, "uOffset");
     uRotationLoc = glGetUniformLocation(basicShader, "uRotation");
     uScaleLoc = glGetUniformLocation(basicShader, "uScale");
     uUseTextureLoc = glGetUniformLocation(basicShader, "uUseTexture");
+    uUseTex1Loc = glGetUniformLocation(basicShader, "uUseTex1");
+    uUseTex2Loc = glGetUniformLocation(basicShader, "uUseTex2");
     resetTransform();
 
     // Callback za mis i taster
@@ -723,10 +728,10 @@ int main()
     // Informacije o meni
     float studentInfoSquare[] = {
         //   x      y       r     g     b     a      s     t
-            0.5f, 0.9f, 1.0f, 1.0f, 1.0f, 1.0f,     0.0f, 1.0f,  // gornje levo
-            0.5f, 0.8f, 1.0f, 1.0f, 1.0f, 1.0f,     0.0f, 0.0f,  // donje levo
-            1.0f, 0.8f, 1.0f, 1.0f, 1.0f, 1.0f,     1.0f, 0.0f,  // donje desno
-            1.0f, 0.9f, 1.0f, 1.0f, 1.0f, 1.0f,     1.0f, 1.0f   // gornje desno
+            0.3f,  0.58f, 1.0f, 1.0f, 1.0f, 1.0f,     0.0f, 1.0f,  // gornje levo
+            0.3f,  0.48f, 1.0f, 1.0f, 1.0f, 1.0f,     0.0f, 0.0f,  // donje levo
+            1.0f,  0.48f, 1.0f, 1.0f, 1.0f, 1.0f,     1.0f, 0.0f,  // donje desno
+            1.0f,  0.58f, 1.0f, 1.0f, 1.0f, 1.0f,     1.0f, 1.0f   // gornje desno
     };
     unsigned int studentVAO, studentVBO;
     formVAO(studentInfoSquare, sizeof(studentInfoSquare), studentVAO, studentVBO);
@@ -749,7 +754,7 @@ int main()
     // Teksture za ljude i pojas
     unsigned int personTextures[8];
     unsigned int personGreenTextures[8];
-    // Učitavanje jedinstvenih tekstura za svih 8 osoba
+    // Ucitavanje tekstura za osobe
     for (int i = 0; i < 8; ++i) {
         // Formiramo putanju npr. "res/human1.png", "res/human2.png"...
         std::string personPath = "res/human" + std::to_string(i + 1) + ".png";
@@ -786,7 +791,7 @@ int main()
     preprocessTexture(cloudTextures[1], "res/cloud2.png");
     preprocessTexture(cloudTextures[2], "res/cloud3.png");
 
-    // Kreiramo jedan generalni kvadrat (quad) za oblake koji ćemo kasnije skalirati po potrebi
+    // Kreiramo jedan generalni kvadrat za oblake
     float cloudSquare[] = {
         //   x       y       r     g     b     a         s     t
           -0.5f,  0.5f,  1.0f, 1.0f, 1.0f, 1.0f,    0.0f, 1.0f, // gornje levo
@@ -797,14 +802,14 @@ int main()
     unsigned int cloudVBO;
     formVAO(cloudSquare, sizeof(cloudSquare), cloudVAO, cloudVBO);
 
-    // Inicijalizacija početnih pozicija oblaka (različite visine iznad pruge, brzine i veličine)
+    // Pravimo oblake
     for (int i = 0; i < MAX_CLOUDS; ++i) {
-        clouds[i].x = -1.2f + (static_cast<float>(rand()) / RAND_MAX) * 2.4f; // Nasumično po X osi
-        clouds[i].y = 0.25f + (static_cast<float>(rand()) / RAND_MAX) * 0.5f;  // Iznad vrha rolerkostera (od 0.25 do 0.75)
-        clouds[i].speed = 0.0003f + (static_cast<float>(rand()) / RAND_MAX) * 0.0005f; // Različite spore brzine
-        clouds[i].textureIndex = i % 3; // Rotiramo teksture 1, 2 i 3
+        clouds[i].x = -1.2f + (static_cast<float>(rand()) / RAND_MAX) * 2.4f;
+        clouds[i].y = 0.25f + (static_cast<float>(rand()) / RAND_MAX) * 0.4f; 
+        clouds[i].speed = 0.0003f + (static_cast<float>(rand()) / RAND_MAX) * 0.0005f; 
+        clouds[i].textureIndex = i % 3;
 
-        // Prilagođavamo veličinu srazmerno originalnim proporcijama slika
+        // Velicina na osovu dimenzija slika
         if (clouds[i].textureIndex == 0) {
             clouds[i].width = 0.25f; clouds[i].height = 0.125f; // cloud1 (64x32)
         }
@@ -878,7 +883,7 @@ int main()
     // Oslobadjanje GPU resursa
     unsigned int vaos[] = { trackVAO, studentVAO, cartVAO, grassVAO, cloudVAO, supportVAO, returnTrackVAO };
     unsigned int vbos[] = { trackVBO, studentVBO, cartVBO, grassVBO, cloudVBO, supportVBO, returnTrackVBO };
-    glDeleteVertexArrays(7, vaos); // brisanje 0 se ignorise (npr. ako nema stubova)
+    glDeleteVertexArrays(7, vaos);
     glDeleteBuffers(7, vbos);
 
     glDeleteTextures(1, &studentTexture);

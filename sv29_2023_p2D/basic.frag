@@ -4,22 +4,27 @@ in vec4 chCol;
 in vec2 chTex;
 out vec4 outCol;
 
-uniform sampler2D uTex0; // osnovna tekstura (vagon, trava, oblaci, ...)
-uniform sampler2D uTex1; // prvi sloj preko osnovne (putnik)
-uniform sampler2D uTex2; // drugi sloj preko prvog (pojas)
+uniform sampler2D uTex0; // osnovna tekstura
+uniform sampler2D uTex1; // prvi sloj (covek)
+uniform sampler2D uTex2; // drugi sloj (pojas)
 
 uniform bool uUseTexture;
 uniform bool uUseTex1 = false;
 uniform bool uUseTex2 = false;
 
+// Standardno mesanje dva sloja
+vec4 over(vec4 top, vec4 bottom)
+{
+	if (top.a == 0.0) return bottom;
+	return top;
+}
+
 void main()
 {
-	// mozemo ovako definisati boju (bez mnozenja) jer znamo da su sve 
-	// gornje teksture 100% ili providne ili neprovidne
 	if (uUseTexture){
 		vec4 col = texture(uTex0, chTex);
-		if (uUseTex1) col = texture(uTex1, chTex);
-		if (uUseTex2) col = texture(uTex2, chTex);
+		if (uUseTex1) col = over(texture(uTex1, chTex), col);
+		if (uUseTex2) col = over(texture(uTex2, chTex), col);
 		outCol = col;
 	} else {
 		outCol = chCol;

@@ -6,7 +6,7 @@ layout(location = 2) in vec2 inTex;
 out vec4 chCol;
 out vec2 chTex;
 
-// Transformacija objekta: skaliranje -> rotacija -> pomeraj
+// Transformacija objekta: skaliranje -> rotacija -> offset
 uniform vec2 uOffset = vec2(0.0, 0.0);
 uniform float uRotation = 0.0;
 uniform vec2 uScale = vec2(1.0, 1.0);
