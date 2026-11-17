@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="sv29_2023_p2D/sv29_2023_p2D.vcxproj" Id="05569e53-6f88-4da2-8887-1b385b16b682" />
+</Solution>
